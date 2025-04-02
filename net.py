@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class RNNModel(nn.Module):
-    def __init__(self, input_size=4, hidden_size=100, tau=100.0, dt=1.0, noise_std=0.1):
+    def __init__(self, input_size=4, hidden_size=100, tau=0.01, dt=0.001, noise_std=0.1):
         """
         Parameters:
         input_size: Input dimension, consisting of 4 channels: [motion, color, motion_context, color_context]
@@ -44,7 +44,7 @@ class RNNModel(nn.Module):
         nn.init.constant_(self.c_x, 0.0)
         nn.init.xavier_uniform_(self.W_out.weight)
     
-    def forward(self, input_seq, h0=None):
+    def forward(self, input_seq, h0=None, extra_time=200, train_mode=True):
         """
         Forward pass: Update state based on continuous-time equations and output decision signal at the final time step.
         
@@ -70,10 +70,7 @@ class RNNModel(nn.Module):
             # Input at the current time step, shape [batch_size, 4]
             u_t = input_seq[t]
             # Separate each channel, maintaining shape [batch_size, 1]
-            u_m = u_t[:, 0:1]    # Motion evidence
-            u_c = u_t[:, 1:2]   # Color evidence
-            u_cm = u_t[:, 2:3]    # Motion context
-            u_cc = u_t[:, 3:4]   # Color context
+            u_m, u_c, u_cm, u_cc = u_t.split(1, dim=1) # motion, color, motion_context, color_context
             
             # Recurrent nonlinear activation
             r = torch.tanh(x)
@@ -86,11 +83,20 @@ class RNNModel(nn.Module):
                           u_cc @ self.b_cc.t())
             
             # Noise term, sampled at each step with the same shape as x
-            noise = self.noise_std * torch.randn_like(x)
+            noise = self.noise_std * torch.randn_like(x) # shape [batch_size, hidden_size]
             
             # Euler update formula: x_{t+1} = x_t + (dt/tau) * ( -x_t + J*r + input_term + c_x + noise )
             dx = (self.dt / self.tau) * (-x + self.J(r) + input_term + self.c_x + noise)
             x = x + dx
+        
+        if (not train_mode) and (extra_time > 0):
+            steps = int(extra_time / self.dt)
+            for _ in range(steps):
+                r = torch.tanh(x)
+                noise = self.noise_std * torch.randn_like(x)
+
+                dx = (self.dt / self.tau) * (-x + self.J(r) + self.c_x + noise)
+                x = x + dx
         
         # Final state is transformed nonlinearly and passed through the linear readout layer to obtain the decision signal
         r_final = torch.tanh(x)
@@ -112,10 +118,7 @@ class RNNModel(nn.Module):
         states = []
         for t in range(T):
             u_t = input_seq[t]
-            u_m = u_t[:, 0:1]
-            u_c = u_t[:, 1:2]
-            u_cm = u_t[:, 2:3]
-            u_cc = u_t[:, 3:4]
+            u_m, u_c, u_cm, u_cc = u_t.split(1, dim=1) # motion, color, motion_context, color_context
             
             r = torch.tanh(x)
             input_term = (u_m @ self.b_m.t() +

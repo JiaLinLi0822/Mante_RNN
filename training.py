@@ -3,11 +3,13 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+import argparse
 
 from env import *
 from net import *
 
-def train_model(num_epochs=1000, batch_size=64, T=20, learning_rate=1e-3, device='cpu'):
+def train_model(num_trials=1000, batch_size=64, T=0.75, learning_rate=1e-3, device='cpu'):
     """
     Train a continuous-time RNN model using only MSE as the loss function, without using BPTT.
     
@@ -27,7 +29,7 @@ def train_model(num_epochs=1000, batch_size=64, T=20, learning_rate=1e-3, device
     env = RDM()
     
     loss_history = []
-    for epoch in range(num_epochs):
+    for epoch in range(num_trials):
         model.train()
         input_seq, targets = env.generate_trial(batch_size)
         optimizer.zero_grad()
@@ -41,14 +43,27 @@ def train_model(num_epochs=1000, batch_size=64, T=20, learning_rate=1e-3, device
         
         loss_history.append(loss.item())
         if (epoch + 1) % 100 == 0:
-            print(f"Epoch {epoch+1}/{num_epochs} - Loss: {loss.item():.4f}")
+            print(f"Epoch {epoch+1}/{num_trials} - Loss: {loss.item():.4f}")
             
     return model, loss_history
 
 if __name__ == "__main__":
 
+    # set random seed for reproducibility
+    torch.manual_seed(0)
+    np.random.seed(0)
+
+    # parse args
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--jobid', type=str, default='1', help='job id')
+    parser.add_argument('--path', type=str, default=os.path.join(os.getcwd(), 'results'), help='path to store results')
+    args = parser.parse_args()
+    exp_path = os.path.join(args.path, f'exp_{args.jobid}')
+    if not os.path.exists(exp_path):
+        os.makedirs(exp_path)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, loss_history = train_model(num_epochs=1000, batch_size=64, T=100, learning_rate=1e-3, device=device)
+    model, loss_history = train_model(num_trials=1000, batch_size=64, T=0.75, learning_rate=1e-3, device=device)
     
     # plot the training curve
     plt.plot(loss_history)
@@ -58,4 +73,4 @@ if __name__ == "__main__":
     plt.show()
     
     # save the model
-    torch.save(model.state_dict(), 'net.pth')
+    torch.save(model.state_dict(), os.path.join(exp_path, 'model.pth'))

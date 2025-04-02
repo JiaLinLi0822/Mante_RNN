@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import os
 
 from env import *
 from net import *
@@ -94,14 +95,17 @@ def perform_pca_and_plot(state_trajectories, num_trials_to_plot=10):
 
 if __name__ == "__main__":
 
+    exp_path = os.path.join(os.getcwd(), 'results', 'exp_1')
     # load the model
-    model = torch.load("net.pth")
+    model = RNNModel()
+    model.load_state_dict(torch.load(os.path.join(exp_path, 'model.pth')))
+    model.eval()
     
     # test the model
-    test_model(model, num_trials=1000, T=100, device=device)
+    test_model(model, num_trials=1000, T=0.75)
     
     # 记录多个试次的隐藏状态轨迹（例如 50 个试次，每个试次 T 个时间步）
-    state_trajectories = record_trajectories(model, num_trials=50, T=100, device=device)
+    state_trajectories = record_trajectories(model, num_trials=50, T=0.75)
     
     # 利用 PCA 对状态轨迹进行降维，并绘制 2D/3D 投影图，帮助理解网络动态
     perform_pca_and_plot(state_trajectories, num_trials_to_plot=10)

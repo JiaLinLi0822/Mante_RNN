@@ -9,11 +9,11 @@ class RDM:
     """
     def __init__(self,
                  T=100,
-                 dt=0.01,
+                 dt=0.001,
                  device='cpu',
                  motion_coherence_levels=[0.05, 0.15, 0.5],
                  color_coherence_levels=[0.06, 0.18, 0.5],
-                 noise_std_per_sqrt_dt=3.1623):
+                 noise_std_per_sqrt_dt=31.623):
         self.T = T
         self.dt = dt
         self.device = device
