@@ -15,7 +15,7 @@ def test_model(model, num_trials=1000, T=20, device='cpu'):
     env = RDM()
     with torch.no_grad():
         for _ in range(num_trials):
-            input_seq, targets = env.generate_trial(batch_size=1)
+            input_seq, targets = env.generate_trial()
             output = model(input_seq)
             pred = 1.0 if output.item() >= 0 else -1.0
             if pred == targets.item():
@@ -37,7 +37,7 @@ def record_trajectories(model, num_trials=50, T=20, device='cpu'):
     env = RDM()
     with torch.no_grad():
         for i in range(num_trials):
-            input_seq, _ = env.generate_trial(batch_size=1)
+            input_seq, _ = env.generate_trial()
             # 调用 forward_with_states 得到每个时间步的隐藏状态，shape: [T, 1, hidden_size]
             states = model.forward_with_states(input_seq)
             # 去掉 batch 维度 -> [T, hidden_size]
@@ -102,10 +102,10 @@ if __name__ == "__main__":
     model.eval()
     
     # test the model
-    test_model(model, num_trials=1000, T=0.75)
+    test_model(model, num_trials=1000)
     
     # 记录多个试次的隐藏状态轨迹（例如 50 个试次，每个试次 T 个时间步）
-    state_trajectories = record_trajectories(model, num_trials=50, T=0.75)
+    state_trajectories = record_trajectories(model, num_trials=50)
     
     # 利用 PCA 对状态轨迹进行降维，并绘制 2D/3D 投影图，帮助理解网络动态
     perform_pca_and_plot(state_trajectories, num_trials_to_plot=10)

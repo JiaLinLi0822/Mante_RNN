@@ -11,7 +11,7 @@ class RNNModel(nn.Module):
         hidden_size: Number of neurons in the hidden layer (approximately 100 units in the paper)
         tau: Time constant, controls the speed of state changes
         dt: Discrete time step
-        noise_std: Standard deviation of noise, used to simulate \rho_x
+        noise_std: Standard deviation of noise, used to simulate rho_x
         """
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
@@ -19,32 +19,33 @@ class RNNModel(nn.Module):
         self.dt = dt
         self.noise_std = noise_std
         
-        # Recurrent connection: weight matrix J (no bias), initialized orthogonally
+        # Recurrent connection: weight matrix J (no bias)
+        # Initialized from a normal distribution with zero mean and variance 1/hidden_size (std = hidden_size**(-0.5))
         self.J = nn.Linear(hidden_size, hidden_size, bias=False)
-        nn.init.orthogonal_(self.J.weight)
+        nn.init.normal_(self.J.weight, mean=0.0, std=hidden_size ** (-0.5))
         
         # Assign separate weight parameters for different inputs
-        # Note: Each input is a scalar, so the parameter shape is (hidden_size, 1)
-        self.b_m = nn.Parameter(torch.Tensor(hidden_size, 1))   # Corresponds to motion evidence u_m
-        self.b_c = nn.Parameter(torch.Tensor(hidden_size, 1))   # Corresponds to motion context input u_c
-        self.b_cm = nn.Parameter(torch.Tensor(hidden_size, 1))  # Corresponds to color context input u_{cm}
-        self.b_cc = nn.Parameter(torch.Tensor(hidden_size, 1))  # Corresponds to color evidence u_{cc}
+        # Each input is a scalar, so initialize from a normal distribution with zero mean and standard deviation 0.5
+        self.b_m = nn.Parameter(torch.Tensor(hidden_size, 1))   # motion evidence u_m
+        self.b_c = nn.Parameter(torch.Tensor(hidden_size, 1))   # color evidence u_c
+        self.b_cm = nn.Parameter(torch.Tensor(hidden_size, 1))  # motion context input u_cm
+        self.b_cc = nn.Parameter(torch.Tensor(hidden_size, 1))  # color context input u_cc
         
-        # State bias c^x
+        nn.init.normal_(self.b_m, mean=0.0, std=0.5)
+        nn.init.normal_(self.b_c, mean=0.0, std=0.5)
+        nn.init.normal_(self.b_cm, mean=0.0, std=0.5)
+        nn.init.normal_(self.b_cc, mean=0.0, std=0.5)
+        
+        # State bias c_x initialized to zero
         self.c_x = nn.Parameter(torch.Tensor(hidden_size))
-        
-        # Readout layer: maps the final state to decision output via a nonlinear transformation
-        self.W_out = nn.Linear(hidden_size, 1)
-        
-        # Parameter initialization (using Xavier initialization here)
-        nn.init.xavier_uniform_(self.b_m)
-        nn.init.xavier_uniform_(self.b_c)
-        nn.init.xavier_uniform_(self.b_cm)
-        nn.init.xavier_uniform_(self.b_cc)
         nn.init.constant_(self.c_x, 0.0)
-        nn.init.xavier_uniform_(self.W_out.weight)
+        
+        # Readout layer: maps the final state to decision output
+        # Initialize output weights to zero
+        self.W_out = nn.Linear(hidden_size, 1)
+        nn.init.constant_(self.W_out.weight, 0.0)
     
-    def forward(self, input_seq, h0=None, extra_time=200, train_mode=True):
+    def forward(self, input_seq, h0=None, extra_time=0.2, train_mode=True):
         """
         Forward pass: Update state based on continuous-time equations and output decision signal at the final time step.
         

@@ -9,32 +9,38 @@ import argparse
 from env import *
 from net import *
 
-def train_model(num_trials=1000, batch_size=64, T=0.75, learning_rate=1e-3, device='cpu'):
+def train(model, env, num_trials=1000, learning_rate=1e-3):
     """
     Train a continuous-time RNN model using only MSE as the loss function, without using BPTT.
     
     Parameters:
-      num_epochs   : Number of training epochs
+      num_trials   : Number of training trials
       batch_size   : Number of trials per training batch
-      T            : Number of time steps per trial (this parameter is currently unused)
+      T            : Duration parameter (currently unused)
       learning_rate: Learning rate
       device       : 'cpu' or 'cuda'
     
     Returns:
       model, loss_history
     """
-    model = RNNModel(input_size=4, hidden_size=100).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
-    env = RDM()
-    
+
     loss_history = []
+
+    # Set up dynamic plotting
+    plt.ion()  # Turn on interactive mode
+    fig, ax = plt.subplots()
+    line, = ax.plot(loss_history)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.set_title('Training Loss(Dynamic)')
+
     for epoch in range(num_trials):
         model.train()
-        input_seq, targets = env.generate_trial(batch_size)
+        input_seq, targets = env.generate_trial()
         optimizer.zero_grad()
         
-        # Directly obtain outputs from the model and compute MSE loss
         outputs = model(input_seq).squeeze()
         loss = criterion(outputs, targets)
         
@@ -42,9 +48,18 @@ def train_model(num_trials=1000, batch_size=64, T=0.75, learning_rate=1e-3, devi
         optimizer.step()
         
         loss_history.append(loss.item())
-        if (epoch + 1) % 100 == 0:
+
+        # Update dynamic plot every 50 epochs
+        if (epoch + 1) % 50 == 0:
+            line.set_xdata(range(len(loss_history)))
+            line.set_ydata(loss_history)
+            ax.relim()
+            ax.autoscale_view()
+            fig.canvas.draw()
+            fig.canvas.flush_events()
             print(f"Epoch {epoch+1}/{num_trials} - Loss: {loss.item():.4f}")
             
+    plt.ioff()  # Turn off interactive plotting
     return model, loss_history
 
 if __name__ == "__main__":
@@ -62,15 +77,23 @@ if __name__ == "__main__":
     if not os.path.exists(exp_path):
         os.makedirs(exp_path)
 
+    model = RNNModel(input_size=4, hidden_size=100)
+    env = RDM(T=750, batch_size=64)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, loss_history = train_model(num_trials=1000, batch_size=64, T=0.75, learning_rate=1e-3, device=device)
+
+    model, loss_history = train(model, env, num_trials=60000, learning_rate=1e-3)
     
-    # plot the training curve
-    plt.plot(loss_history)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training Loss History')
+    # Transform the x-axis as percentage of epochs and bin the epochs
+    total_epochs = len(loss_history)
+    bin_size = total_epochs // 100  # Bin size for 1% increments
+    binned_loss = [np.mean(loss_history[i:i + bin_size]) * 100 for i in range(0, total_epochs, bin_size)]
+    percentage_epochs = np.linspace(0, 100, len(binned_loss))
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(percentage_epochs, binned_loss)
+    plt.xlabel('Epochs (%)')
+    plt.ylabel('Loss (%)')
+    plt.title('Training Loss')
     plt.show()
-    
     # save the model
     torch.save(model.state_dict(), os.path.join(exp_path, 'model.pth'))
