@@ -38,7 +38,7 @@ def train(model, env, num_trials=1000, learning_rate=1e-3):
 
     for epoch in range(num_trials):
         model.train()
-        input_seq, targets = env.generate_trial()
+        input_seq, targets, _, _, _ = env.generate_trial()
         optimizer.zero_grad()
         
         outputs = model(input_seq).squeeze()

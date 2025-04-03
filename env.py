@@ -101,13 +101,16 @@ class RDM:
         trial_input_seq = torch.tensor(trial_input_seq, dtype=torch.float32, device=self.device)
         targets = torch.tensor(targets, dtype=torch.float32, device=self.device)
 
-        return trial_input_seq, targets
+        return trial_input_seq, targets, motion_coherences * motion_signs, color_coherences * color_signs, context_flags
     
 if __name__ == "__main__":
     # Example usage
     env = RDM(batch_size=1)
-    input_seq, targets = env.generate_trial()
+    input_seq, targets, motion_coherences, color_coherences, context_flags = env.generate_trial()
     print("Input Sequence Shape:", input_seq.shape)
     print("Targets Shape:", targets.shape)
+    print("Motion Coherences:", motion_coherences)
+    print("Color Coherences:", color_coherences)
+    print("Context Flags:", context_flags)
     print("Input Sequence:", input_seq)
     print("Targets:", targets)
