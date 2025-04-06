@@ -8,8 +8,9 @@ import argparse
 
 from env import *
 from net import *
+from utils import *
 
-def train(model, env, num_trials=1000, learning_rate=1e-3):
+def train(model, env, num_trials=1000, learning_rate=1e-3, device='cpu'):
     """
     Train a continuous-time RNN model using only MSE as the loss function, without using BPTT.
     
@@ -23,10 +24,14 @@ def train(model, env, num_trials=1000, learning_rate=1e-3):
     Returns:
       model, loss_history
     """
+
+    model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
-
     loss_history = []
+
+    # initialize the slow points
+    slow_points = {0: None, 1: None}
 
     # Set up dynamic plotting
     plt.ion()  # Turn on interactive mode
@@ -38,16 +43,39 @@ def train(model, env, num_trials=1000, learning_rate=1e-3):
 
     for epoch in range(num_trials):
         model.train()
-        input_seq, targets, _, _, _ = env.generate_trial()
+        input_seq, targets, d_m, d_c, context_flags = env.generate_trial()
+        input_seq = input_seq.to(device)
+        targets = targets.to(device)
+        context_flags = context_flags.to(device)
+
+        batch_size = input_seq.size(1)
+        h0_list = []
+        for flag in context_flags:
+            flag_val = int(flag.item())
+            # halfway through training, use the slow points as initial states
+            if (epoch >= num_trials//2) and (slow_points[flag_val] is not None):
+                init_state = slow_points[flag_val].clone()  # shape [1, hidden_size]
+            else:
+                init_state = get_context_initial_state(model, flag_val, steps=200)
+            h0_list.append(init_state)
+        h0 = torch.cat(h0_list, dim=0)  # [batch_size, hidden_size]
+
         optimizer.zero_grad()
+        outputs, _ = model(input_seq, h0=h0)
         
-        outputs = model(input_seq).squeeze()
-        loss = criterion(outputs, targets)
-        
+        loss = criterion(outputs, torch.stack([torch.zeros_like(targets), targets], dim=1).to(device))
         loss.backward()
         optimizer.step()
         
         loss_history.append(loss.item())
+
+        # halfway through training, refine the slow points
+        if (epoch + 1) == num_trials // 2:
+            print("Refining slow points at mid-training...")
+            # 分别对 motion 和 color context 进行 refine
+            slow_points[0] = refine_slow_point(model, context_flag=0, steps=200, refine_steps=200, lr=1e-2)
+            slow_points[1] = refine_slow_point(model, context_flag=1, steps=200, refine_steps=200, lr=1e-2)
+            print("Updated slow points.")
 
         # Update dynamic plot every 100 epochs
         if (epoch + 1) % 100 == 0:
@@ -70,18 +98,20 @@ if __name__ == "__main__":
 
     # parse args
     parser = argparse.ArgumentParser()
-    parser.add_argument('--jobid', type=str, default='1', help='job id')
+    parser.add_argument('--jobid', type=str, default='0', help='job id')
     parser.add_argument('--path', type=str, default=os.path.join(os.getcwd(), 'results'), help='path to store results')
     args = parser.parse_args()
     exp_path = os.path.join(args.path, f'exp_{args.jobid}')
     if not os.path.exists(exp_path):
         os.makedirs(exp_path)
 
-    model = RNNModel(input_size=4, hidden_size=100)
-    env = RDM(T=750, batch_size=64)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    model = RNNModel(input_size=4, hidden_size=100, device=device)
+    env = RDM(T=750, batch_size=64, device=device)
 
-    model, loss_history = train(model, env, num_trials=60000, learning_rate=1e-3)
+    model, loss_history = train(model, env, num_trials=1000, learning_rate=1e-3, device=device)
     
     # Transform the x-axis as percentage of epochs and bin the epochs
     total_epochs = len(loss_history)

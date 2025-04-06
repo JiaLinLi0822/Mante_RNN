@@ -100,8 +100,11 @@ class RDM:
         # Step 8: Convert arrays to torch tensors
         trial_input_seq = torch.tensor(trial_input_seq, dtype=torch.float32, device=self.device)
         targets = torch.tensor(targets, dtype=torch.float32, device=self.device)
+        context_flags = torch.tensor(context_flags, dtype=torch.float32, device=self.device)
+        motion_coherences = torch.tensor(motion_coherences * motion_signs, dtype=torch.float32, device=self.device)
+        color_coherences = torch.tensor(color_coherences * color_signs, dtype=torch.float32, device=self.device)
 
-        return trial_input_seq, targets, motion_coherences * motion_signs, color_coherences * color_signs, context_flags
+        return trial_input_seq, targets, motion_coherences, color_coherences, context_flags
     
 if __name__ == "__main__":
     # Example usage

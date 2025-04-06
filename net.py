@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class RNNModel(nn.Module):
-    def __init__(self, input_size=4, hidden_size=100, tau=0.01, dt=0.001, noise_std=0.1):
+    def __init__(self, input_size=4, hidden_size=100, tau=0.01, dt=0.001, noise_std=0.1, device='cpu'):
         """
         Parameters:
         input_size: Input dimension, consisting of 4 channels: [motion, color, motion_context, color_context]
@@ -18,6 +18,8 @@ class RNNModel(nn.Module):
         self.tau = tau # time constant
         self.dt = dt
         self.noise_std = noise_std
+        self.device = device
+        self.input_size = input_size
         
         # Recurrent connection: weight matrix J (no bias)
         # Initialized from a normal distribution with zero mean and variance 1/hidden_size (std = hidden_size**(-0.5))
@@ -26,10 +28,10 @@ class RNNModel(nn.Module):
         
         # Assign separate weight parameters for different inputs
         # Each input is a scalar, so initialize from a normal distribution with zero mean and standard deviation 0.5
-        self.b_m = nn.Parameter(torch.Tensor(hidden_size, 1))   # motion evidence u_m
-        self.b_c = nn.Parameter(torch.Tensor(hidden_size, 1))   # color evidence u_c
-        self.b_cm = nn.Parameter(torch.Tensor(hidden_size, 1))  # motion context input u_cm
-        self.b_cc = nn.Parameter(torch.Tensor(hidden_size, 1))  # color context input u_cc
+        self.b_m = nn.Parameter(torch.Tensor(hidden_size, 1)).to(self.device)   # motion evidence u_m
+        self.b_c = nn.Parameter(torch.Tensor(hidden_size, 1)).to(self.device)   # color evidence u_c
+        self.b_cm = nn.Parameter(torch.Tensor(hidden_size, 1)).to(self.device)  # motion context input u_cm
+        self.b_cc = nn.Parameter(torch.Tensor(hidden_size, 1)).to(self.device)  # color context input u_cc
         
         nn.init.normal_(self.b_m, mean=0.0, std=0.5)
         nn.init.normal_(self.b_c, mean=0.0, std=0.5)
@@ -37,8 +39,7 @@ class RNNModel(nn.Module):
         nn.init.normal_(self.b_cc, mean=0.0, std=0.5)
         
         # State bias c_x initialized to zero
-        self.c_x = nn.Parameter(torch.Tensor(hidden_size))
-        nn.init.constant_(self.c_x, 0.0)
+        self.c_x = nn.Parameter(torch.zeros(hidden_size, device=self.device))
         
         # Readout layer: maps the final state to decision output
         # Initialize output weights to zero
@@ -66,6 +67,7 @@ class RNNModel(nn.Module):
         else:
             x = h0
         
+        states = []
         # Discrete-time Euler update
         for t in range(T):
             # Input at the current time step, shape [batch_size, 4]
@@ -89,6 +91,11 @@ class RNNModel(nn.Module):
             # Euler update formula: x_{t+1} = x_t + (dt/tau) * ( -x_t + J*r + input_term + c_x + noise )
             dx = (self.dt / self.tau) * (-x + self.J(r) + input_term + self.c_x + noise)
             x = x + dx
+            states.append(x)
+
+            if t == 0:
+                r_first = torch.tanh(x)
+                output_first = self.W_out(r_first)
         
         if (not train_mode) and (extra_time > 0):
             steps = int(extra_time / self.dt)
@@ -101,8 +108,11 @@ class RNNModel(nn.Module):
         
         # Final state is transformed nonlinearly and passed through the linear readout layer to obtain the decision signal
         r_final = torch.tanh(x)
-        output = self.W_out(r_final)
-        return output.squeeze()
+        output_final = self.W_out(r_final)
+        states = torch.stack(states, dim=0)
+        outputs = torch.stack([output_first.squeeze(), output_final.squeeze()], dim=-1)  # shape [batch_size, 2]
+
+        return outputs, states
     
     def forward_with_states(self, input_seq, h0=None):
         """

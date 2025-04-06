@@ -19,8 +19,9 @@ def test_model(model, num_trials=1000, T=20, device='cpu'):
     with torch.no_grad():
         for _ in range(num_trials):
             input_seq, targets, _, _, _ = env.generate_trial()
-            output = model(input_seq)
-            pred = 1.0 if output.item() >= 0 else -1.0
+            outputs, _ = model(input_seq)
+            output = outputs[-1]  # Get the last output for the trial
+            pred = torch.sign(output).item()  # convert to -1 or +1
             if pred == targets.item():
                 correct += 1
     accuracy = correct / num_trials
@@ -52,10 +53,10 @@ def record_trajectories(model, num_trials=50, T=20, device='cpu'):
             states = states.squeeze(1)
             all_states.append(states.cpu().numpy())
             trial_info.append({
-                'motion_coherences': motion_coherences,
-                'color_coherences': color_coherences,
+                'motion_coherences': np.round(motion_coherences.cpu().numpy(), 2),
+                'color_coherences': np.round(color_coherences.cpu().numpy(), 2),
                 'context_flags': context_flags,  # context_flags are 0 (color task) or 1 (motion task)
-                'target': target,
+                'target': target.cpu().numpy(),
             })
     all_states = np.array(all_states)  # shape: [num_trials, T, hidden_size]
     return all_states, trial_info
@@ -456,7 +457,7 @@ def perform_pca_and_plot(state_trajectories, trial_info):
 # Main execution
 # ===============================
 if __name__ == "__main__":
-    exp_path = os.path.join(os.getcwd(), 'results', 'exp_1')
+    exp_path = os.path.join(os.getcwd(), 'results', 'exp_0')
     # Load the model
     model = RNNModel()  # Assume RNNModel is defined elsewhere
     model.load_state_dict(torch.load(os.path.join(exp_path, 'model.pth')))
