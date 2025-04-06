@@ -47,14 +47,15 @@ def record_trajectories(model, num_trials=50, T=20, device='cpu'):
         for i in range(num_trials):
             input_seq, target, motion_coherences, color_coherences, context_flags = env.generate_trial()
             # Get hidden states for each timestep, shape: [T, 1, hidden_size]
-            states = model.forward_with_states(input_seq)
+            states, output = model.forward_with_states(input_seq)
             # Remove batch dimension -> [T, hidden_size]
             states = states.squeeze(1)
             all_states.append(states.cpu().numpy())
             trial_info.append({
                 'motion_coherences': motion_coherences,
                 'color_coherences': color_coherences,
-                'context_flags': context_flags  # context_flags are 0 (color task) or 1 (motion task)
+                'context_flags': context_flags,  # context_flags are 0 (color task) or 1 (motion task)
+                'target': target,
             })
     all_states = np.array(all_states)  # shape: [num_trials, T, hidden_size]
     return all_states, trial_info
@@ -313,21 +314,24 @@ def perform_pca_and_plot(state_trajectories, trial_info):
     # ============================
     # 第二部分：Regression Subspace 分析及轨迹绘图
     # ============================
-    # 本例中我们构造一个设计矩阵 Z，包含 3 个变量：
+    # 本例中我们构造一个设计矩阵 Z，包含 4 个变量：
     #   Z[:,0] : motion_coherences
     #   Z[:,1] : color_coherences
     #   Z[:,2] : context_flags
-    # （实际应用中可以加入其他变量，比如 choice）
-    num_vars = 3
+    #   Z[:,3] : target (1 or -1)
+
+    num_vars = 4
     Z = np.stack([trial_df['motion_coherences'].values,
                   trial_df['color_coherences'].values,
-                  trial_df['context_flags'].values], axis=1)  # shape: [num_trials, 3]
+                  trial_df['context_flags'].values, 
+                  trial_df['target'].values], axis=1)  # shape: [num_trials, 4]
     
     # 为构建全局去噪子空间，先对所有 trial 的状态进行 PCA（参考文章：对 N_units x (N_conditions * T) 进行 PCA）
-    X_all = state_trajectories.reshape(-1, hidden_size)
+    X_all = state_trajectories.reshape(-1, hidden_size) # [num_trials * T, hidden_size]
+    X_all = (X_all - X_all.mean(axis=0)) / X_all.std(axis=0)
     pca_global = PCA(n_components=12)
     pca_global.fit(X_all)
-    V_global = pca_global.components_.T
+    V_global = pca_global.components_.T # [hidden_size, 12]
     D = V_global @ V_global.T  # 去噪矩阵 D, shape: [hidden_size, hidden_size]
     
     # 对于每个时间点 t 和每个变量 v，进行线性回归，预测 hidden state（每个 trial 的状态）
@@ -335,7 +339,8 @@ def perform_pca_and_plot(state_trajectories, trial_info):
     betas = np.zeros((num_vars, T, hidden_size))
     for t in range(T):
         # X_target: [num_trials, hidden_size]，代表所有 trial 在 t 时刻的状态
-        X_target = state_trajectories[:, t, :]
+        # state_trajectories[:, t, :] 的 shape 为 [num_trials, hidden_size], originally [num_trials, T, hidden_size]
+        X_target = state_trajectories[:, t, :] 
         for v in range(num_vars):
             # 对于单变量回归：用 Z[:, v] 预测 X_target
             model = LinearRegression()
@@ -347,6 +352,14 @@ def perform_pca_and_plot(state_trajectories, trial_info):
     # 将每个 beta 向量投影到 PCA 去噪子空间中
     # betas_denoised: shape [num_vars, T, hidden_size]
     betas_denoised = np.einsum('ij,vtj->vti', D, betas)
+
+    for v in range(num_vars):
+        plt.plot(np.linalg.norm(betas_denoised[v], axis=1), label=f'Var {v}')
+    plt.xlabel("Time")
+    plt.ylabel("||beta||")
+    plt.title("Norm of beta over time")
+    plt.legend()
+    plt.show()
     
     # 对每个变量，选择“贡献”最大的时间点（例如向量范数最大的时刻）
     regression_axes = []

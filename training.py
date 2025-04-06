@@ -49,8 +49,8 @@ def train(model, env, num_trials=1000, learning_rate=1e-3):
         
         loss_history.append(loss.item())
 
-        # Update dynamic plot every 50 epochs
-        if (epoch + 1) % 50 == 0:
+        # Update dynamic plot every 100 epochs
+        if (epoch + 1) % 100 == 0:
             line.set_xdata(range(len(loss_history)))
             line.set_ydata(loss_history)
             ax.relim()

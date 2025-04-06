@@ -15,7 +15,7 @@ class RNNModel(nn.Module):
         """
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
-        self.tau = tau
+        self.tau = tau # time constant
         self.dt = dt
         self.noise_std = noise_std
         
@@ -130,8 +130,12 @@ class RNNModel(nn.Module):
             dx = (self.dt / self.tau) * (-x + self.J(r) + input_term + self.c_x + noise)
             x = x + dx
             states.append(x)
+        
+        r_final = torch.tanh(x)
+        output = self.W_out(r_final)
         states = torch.stack(states, dim=0)
-        return states
+
+        return states, output.squeeze()
     
 if __name__ == "__main__":
     # Test the model
